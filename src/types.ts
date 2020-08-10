@@ -132,3 +132,9 @@ export interface CacheInterface {
 }
 
 export type cacheListener = () => void
+
+export enum PageDirection {
+  Next,
+  Prev
+}
+export type PageInfo<Data = any> = { data: Data; pageToGet: PageDirection }

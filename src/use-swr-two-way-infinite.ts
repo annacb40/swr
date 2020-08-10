@@ -4,13 +4,20 @@ import defaultConfig, { cache } from './config'
 import SWRConfigContext from './swr-config-context'
 import useSWR from './use-swr'
 
-import { keyType, fetcherFn, ConfigInterface, responseInterface } from './types'
+import {
+  keyType,
+  fetcherFn,
+  ConfigInterface,
+  responseInterface,
+  PageInfo,
+  PageDirection
+} from './types'
 
 type DataRecord<Data = any> = Record<number, Data>
 
 type KeyLoader<Data = any> = (
   index: number,
-  previousPageData: Data | null
+  previousPageInfo: PageInfo<Data> | null
 ) => keyType
 type SWRTwoWayConfigInterface<Data = any, Error = any> = ConfigInterface<
   DataRecord<Data>,
@@ -146,10 +153,22 @@ function useSWRTwoWayInfinite<Data = any, Error = any>(
       // return an array of page data
       const data: DataRecord<Data> = []
 
+      // must revalidate if:
+      // - forced to revalidate all
+      // - we revalidate the first page by default (e.g.: upon focus)
+      // - page has changed
+      // - the offset has changed so the cache is missing
+      const toShouldRevalidatePage = (index: number, pageData: any) =>
+        revalidateAll ||
+        force ||
+        (typeof force === 'undefined' && index === 0) ||
+        (originalData && !config.compare(originalData[index], pageData)) ||
+        typeof pageData === 'undefined'
+
       let previousPageData = null
-      for (let i = pageMinRef.current; i <= pageMinRef.current; ++i) {
+      for (let i = 0; i >= pageMinRef.current; --i) {
         const [pageKey, pageArgs] = cache.serializeKey(
-          getKey(i, previousPageData)
+          getKey(i, { data: previousPageData, pageToGet: PageDirection.Prev })
         )
 
         if (!pageKey) {
@@ -160,19 +179,7 @@ function useSWRTwoWayInfinite<Data = any, Error = any>(
         // get the current page cache
         let pageData = cache.get(pageKey)
 
-        // must revalidate if:
-        // - forced to revalidate all
-        // - we revalidate the first page by default (e.g.: upon focus)
-        // - page has changed
-        // - the offset has changed so the cache is missing
-        const shouldRevalidatePage =
-          revalidateAll ||
-          force ||
-          (typeof force === 'undefined' && i === 0) ||
-          (originalData && !config.compare(originalData[i], pageData)) ||
-          typeof pageData === 'undefined'
-
-        if (shouldRevalidatePage) {
+        if (toShouldRevalidatePage(i, pageData)) {
           if (pageArgs !== null) {
             pageData = await fn(...pageArgs)
           } else {
@@ -181,7 +188,31 @@ function useSWRTwoWayInfinite<Data = any, Error = any>(
           cache.set(pageKey, pageData)
         }
 
-        // data.push(pageData)
+        data[i] = pageData
+        previousPageData = pageData
+      }
+      for (let i = 0; i <= pageMinRef.current; ++i) {
+        const [pageKey, pageArgs] = cache.serializeKey(
+          getKey(i, { data: previousPageData, pageToGet: PageDirection.Next })
+        )
+
+        if (!pageKey) {
+          // pageKey is falsy, stop fetching next pages
+          break
+        }
+
+        // get the current page cache
+        let pageData = cache.get(pageKey)
+
+        if (toShouldRevalidatePage(i, pageData)) {
+          if (pageArgs !== null) {
+            pageData = await fn(...pageArgs)
+          } else {
+            pageData = await fn(pageKey)
+          }
+          cache.set(pageKey, pageData)
+        }
+
         data[i] = pageData
         previousPageData = pageData
       }
@@ -199,7 +230,7 @@ function useSWRTwoWayInfinite<Data = any, Error = any>(
 
   // extend the SWR API
   const mutate = swrTwoWay.mutate
-  // swrInfinite.size = pageCountRef.current
+  swrTwoWay.size = pageMaxRef.current - pageMinRef.current + 1
   swrTwoWay.mutate = useCallback(
     (data, shouldRevalidate = true) => {
       if (shouldRevalidate && typeof data !== 'undefined') {
