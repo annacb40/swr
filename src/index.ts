@@ -5,6 +5,11 @@ export {
   SWRInfiniteConfigInterface,
   SWRInfiniteResponseInterface
 } from './use-swr-infinite'
+export {
+  useSWRTwoWayInfinite,
+  SWRTwoWayConfigInterface,
+  SWRTwoWayResponseInterface
+} from './use-swr-two-way-infinite'
 export { cache } from './config'
 export {
   ConfigInterface,
